@@ -24,7 +24,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);margin:0}
-.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px}
+.wrap{max-width:1280px;margin:0 auto;padding:28px 20px 48px}
 header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:22px}
 h1{font:800 clamp(26px,4vw,36px)/1.05 var(--f-display);font-stretch:112%;letter-spacing:-.01em;margin:0;text-wrap:balance}
 .sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
@@ -62,7 +62,8 @@ td.num{font:400 13.5px var(--f-data);text-align:right;white-space:nowrap}
 .rank{color:var(--muted);font:400 12px var(--f-data);width:28px}
 .tk{font:600 13.5px var(--f-data)}
 .nm{color:var(--muted);font-size:13px}
-.wcell{min-width:150px}
+td .nm{display:inline-block;max-width:16ch;vertical-align:top;line-height:1.3}
+.wcell{min-width:112px}
 .wbar{display:flex;align-items:center;gap:8px}
 .wbar span.b{height:8px;border-radius:2px;background:var(--bar);flex:none}
 .wbar span.t{font:500 13.5px var(--f-data);min-width:46px;text-align:right}
@@ -79,7 +80,7 @@ h3{font:700 14px var(--f-body);text-transform:uppercase;letter-spacing:.06em;col
 .ov th.m{text-align:center;font-size:11px}
 .spark{display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .spark svg{display:block;overflow:visible;cursor:crosshair}
-.spark .pc{font:500 13px var(--f-data);min-width:62px;text-align:right;white-space:nowrap}
+.spark .pc{font:500 13px var(--f-data);min-width:96px;text-align:right;white-space:nowrap}
 .spark .pc small{display:block;font-size:11px;color:var(--muted);font-weight:400}
 .up{color:var(--add)} .dn{color:var(--sold)}
 .tip{position:fixed;z-index:10;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:12px/1.35 var(--f-data);box-shadow:0 4px 14px rgba(0,0,0,.12);white-space:nowrap}
@@ -130,42 +131,52 @@ const PD = PRICES.dates || [], PX = PRICES.px || {};
 const idxOnOrBefore = day => { let i = -1; for (let k = 0; k < PD.length; k++) { if (PD[k] <= day) i = k; else break; } return i; };
 const idxOnOrAfter = day => PD.findIndex(x => x >= day);
 const shortDate = s => { const [y,m,d] = s.split("-").map(Number); return `${MONTHS[m-1].slice(0,3)} ${d}`; };
-function move(t, from, filed){
-  const s = PX[t === "GOOG" ? "GOOG" : t]; if (!s) return null;
-  let i0 = idxOnOrBefore(from); while (i0 >= 0 && s[i0] == null) i0--;
-  if (i0 < 0) { i0 = s.findIndex(v => v != null); if (i0 < 0) return null; }
-  let i1 = s.length - 1; while (i1 > i0 && s[i1] == null) i1--;
-  if (i1 <= i0) return null;
-  let iF = filed ? idxOnOrAfter(filed) : -1; if (iF >= 0) { while (iF <= i1 && s[iF] == null) iF++; if (iF > i1) iF = -1; }
-  return {s, i0, i1, iF, ret: s[i1]/s[i0] - 1, retF: iF >= 0 ? s[i1]/s[iF] - 1 : null};
+const qStartOf = d => d.pp || (() => { const [y,m] = d.p.split("-").map(Number); const pm = m - 3 > 0 ? m - 3 : m + 9, py = m - 3 > 0 ? y : y - 1; return `${py}-${String(pm).padStart(2,"0")}-${pm===6||pm===9?30:31}`; })();
+/* Price path for one holding: the quarter the filing covers (when buying happened) through today.
+   Quarter average close = the likely buy price; the % compares today's price with it. */
+function move(t, d){
+  const s = PX[t]; if (!s || !d.p) return null;
+  const qs = qStartOf(d);
+  let a = idxOnOrAfter(qs > PD[0] ? qs : PD[0]); if (PD[a] === qs) a++;          // first trading day of the quarter
+  let e = idxOnOrBefore(d.p);                                                    // quarter-end
+  let last = s.length - 1; while (last >= 0 && s[last] == null) last--;
+  if (a < 0 || e < a || last <= e) return null;
+  const q = []; for (let i = a; i <= e; i++) if (s[i] != null) q.push(s[i]);
+  if (q.length < 5) return null;
+  const avg = q.reduce((x, y) => x + y, 0) / q.length, lo = Math.min(...q), hi = Math.max(...q);
+  let f = idxOnOrAfter(d.d); if (f >= 0) { while (f <= last && s[f] == null) f++; if (f > last) f = -1; }
+  return {s, a, e, last, f, avg, lo, hi, now: s[last], ret: s[last]/avg - 1, retF: f >= 0 ? s[last]/s[f] - 1 : null};
 }
 const sign = x => (x >= 0 ? "+" : "−") + Math.abs(x*100).toFixed(1) + "%";
-function spark(t, from, filed){
-  const m = move(t, from, filed);
+const money = v => "$" + (v >= 1000 ? v.toFixed(0) : v >= 100 ? v.toFixed(1) : v.toFixed(2));
+function spark(t, d){
+  const m = move(t, d);
   if (!m) return `<div class="spark"><span class="pc nm">—</span></div>`;
-  const W = 92, H = 26, pts = [];
-  const vals = m.s.slice(m.i0, m.i1 + 1);
-  const lo = Math.min(...vals.filter(v => v != null)), hi = Math.max(...vals.filter(v => v != null));
+  const W = 92, H = 28, i0 = m.a, i1 = m.last;
+  const vals = []; for (let i = i0; i <= i1; i++) if (m.s[i] != null) vals.push(m.s[i]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
   const y = v => hi === lo ? H/2 : H - 2 - (v - lo) / (hi - lo) * (H - 4);
-  const x = i => (i - m.i0) / (m.i1 - m.i0) * W;
-  for (let i = m.i0; i <= m.i1; i++) if (m.s[i] != null) pts.push(`${x(i).toFixed(1)},${y(m.s[i]).toFixed(1)}`);
+  const x = i => (i - i0) / (i1 - i0) * W;
+  const pts = []; for (let i = i0; i <= i1; i++) if (m.s[i] != null) pts.push(`${x(i).toFixed(1)},${y(m.s[i]).toFixed(1)}`);
   const up = m.ret >= 0;
-  const fmark = m.iF >= 0 ? `<line x1="${x(m.iF).toFixed(1)}" x2="${x(m.iF).toFixed(1)}" y1="0" y2="${H}" stroke="var(--line)" stroke-width="1"/><circle cx="${x(m.iF).toFixed(1)}" cy="${y(m.s[m.iF]).toFixed(1)}" r="2.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.2"/>` : "";
-  return `<div class="spark"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" data-t="${esc(t)}" data-from="${from}" data-filed="${filed||""}" role="img" aria-label="${esc(t)} ${sign(m.ret)} since ${shortDate(from)}">
-    <line x1="0" x2="${W}" y1="${y(m.s[m.i0]).toFixed(1)}" y2="${y(m.s[m.i0]).toFixed(1)}" stroke="var(--line)" stroke-dasharray="2 3" stroke-width="1"/>
-    ${fmark}<polyline points="${pts.join(" ")}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="${W}" cy="${y(m.s[m.i1]).toFixed(1)}" r="2.5" fill="${up ? "var(--add)" : "var(--sold)"}"/></svg>
-    <span class="pc"><span class="${up ? "up" : "dn"}">${up ? "▲" : "▼"}</span> ${sign(m.ret)}${m.retF != null ? `<small>${sign(m.retF)} since filed</small>` : ""}</span></div>`;
+  const fmark = m.f >= 0 ? `<circle cx="${x(m.f).toFixed(1)}" cy="${y(m.s[m.f]).toFixed(1)}" r="2.5" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.2"/>` : "";
+  return `<div class="spark"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" data-t="${esc(t)}" data-m="${esc(d._key)}" role="img" aria-label="${esc(t)}: ${sign(m.ret)} versus the quarter's average price">
+    <rect x="0" y="0" width="${x(m.e).toFixed(1)}" height="${H}" fill="var(--soft)"/>
+    <line x1="0" x2="${x(m.e).toFixed(1)}" y1="${y(m.avg).toFixed(1)}" y2="${y(m.avg).toFixed(1)}" stroke="var(--accent)" stroke-dasharray="3 2" stroke-width="1.2"/>
+    <polyline points="${pts.join(" ")}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${fmark}<circle cx="${W}" cy="${y(m.now).toFixed(1)}" r="2.5" fill="${up ? "var(--add)" : "var(--sold)"}"/></svg>
+    <span class="pc"><span class="${up ? "up" : "dn"}">${up ? "▲" : "▼"}</span> ${sign(m.ret)}<small>avg ${money(m.avg)} → ${money(m.now)}</small></span></div>`;
 }
 function portfolioMove(d){
   let w = 0, r = 0, rf = 0, wf = 0;
-  d.r.forEach(row => { const m = move(row[1], d.p, d.d); if (!m) return; w += row[3]; r += row[3]*m.ret; if (m.retF != null) { wf += row[3]; rf += row[3]*m.retF; } });
-  const spy = move("SPY", d.p, d.d);
+  d.r.forEach(row => { const m = move(row[1], d); if (!m) return; w += row[3]; r += row[3]*m.ret; if (m.retF != null) { wf += row[3]; rf += row[3]*m.retF; } });
+  const spy = move("SPY", d);
   return w ? {cover: w / d.r.reduce((a,x)=>a+x[3],0), ret: r/w, retF: wf ? rf/wf : null, spy} : null;
 }
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const longDate = s => { const [y,m,d] = s.split("-").map(Number); return `${MONTHS[m-1]} ${d}, ${y}`; };
 const ORDER = Object.keys(META).filter(m => DATA[m]);
+ORDER.forEach(m => DATA[m]._key = m);
 (() => {
   const per = ORDER.map(m => DATA[m].p).filter(Boolean).sort().pop();
   const behind = ORDER.filter(m => DATA[m].p && DATA[m].p < per).map(m => META[m][0]);
@@ -211,9 +222,9 @@ function select(m){
   const d = DATA[m], s = summary(m), max = d.r[0][3];
   const chg = d.pt ? (s.tot/d.pt - 1) : null;
   const row = (r,i) => `<tr><td class="rank">${i+1}</td><td><span class="tk">${esc(r[1] || "—")}</span> <span class="nm">${esc(title(r[2]))}</span></td>
-    <td class="wcell"><div class="wbar"><span class="t">${pct(r[3]/s.tot)}</span><span class="b" style="width:${Math.max(2, r[3]/max*120)}px"></span></div></td>
-    <td class="num">${fmtM(r[3])}</td><td class="num shares">${fmtSh(r[4])}</td><td class="r">${chip(r[5])}</td><td>${spark(r[1], d.p, d.d)}</td></tr>`;
-  const head = `<thead><tr><th></th><th>Holding</th><th>Weight</th><th class="r">Value</th><th class="r">Shares</th><th class="r">Vs prior</th><th class="r">Price since ${d.p ? shortDate(d.p) : "quarter end"}</th></tr></thead>`;
+    <td class="wcell"><div class="wbar"><span class="t">${pct(r[3]/s.tot)}</span><span class="b" style="width:${Math.max(2, r[3]/max*70)}px"></span></div></td>
+    <td class="num">${fmtM(r[3])}</td><td class="num shares">${fmtSh(r[4])}</td><td class="r">${chip(r[5])}</td><td>${spark(r[1], d)}</td></tr>`;
+  const head = `<thead><tr><th></th><th>Holding</th><th>Weight</th><th class="r">Value</th><th class="r">Shares</th><th class="r">Vs prior</th><th class="r">Price vs ${d.p ? `${shortDate(PD[idxOnOrAfter(qStartOf(d))] || qStartOf(d))}–${shortDate(d.p)}` : "quarter"} avg</th></tr></thead>`;
   const first = d.r.slice(0,20), rest = d.r.slice(20);
   const opts = (d.o[0]||d.o[1]) ? `<p class="note">Also reports options not counted above: ${d.o[0]?fmtM(d.o[0])+" of puts":""}${d.o[0]&&d.o[1]?" and ":""}${d.o[1]?fmtM(d.o[1])+" of calls":""} (notional value of the underlying shares).</p>` : "";
   document.getElementById("panel").innerHTML = `
@@ -225,11 +236,10 @@ function select(m){
       <div class="stat"><div class="k">Sold</div><div class="v">${s.nSold + s.nCut}</div><div class="d">${s.nSold} exited, ${s.nCut} trimmed</div></div>
     </div>
     ${(() => { const pm = portfolioMove(d); if (!pm || !pm.spy) return "";
-      const last = PD[pm.spy.i1];
-      return `<div class="cmp"><span>Since ${shortDate(d.p)}, if held unchanged: <b>${sign(pm.ret)}</b> vs S&amp;P 500 <b>${sign(pm.spy.ret)}</b></span>${pm.retF != null && pm.spy.retF != null ? `<span>Since the filing went public (${shortDate(d.d)}): <b>${sign(pm.retF)}</b> vs <b>${sign(pm.spy.retF)}</b></span>` : ""}<span>Prices to ${shortDate(last)}${pm.cover < 0.98 ? ` · covers ${pct(pm.cover,0)} of the portfolio` : ""}</span></div>`; })()}
+      return `<div class="cmp"><span>Today vs each stock's average price during the quarter: <b>${sign(pm.ret)}</b> (S&amp;P 500 <b>${sign(pm.spy.ret)}</b>)</span>${pm.retF != null && pm.spy.retF != null ? `<span>Since the filing went public (${shortDate(d.d)}): <b>${sign(pm.retF)}</b> vs <b>${sign(pm.spy.retF)}</b></span>` : ""}<span>Prices to ${shortDate(PD[pm.spy.last])}${pm.cover < 0.98 ? ` · covers ${pct(pm.cover,0)} of the portfolio` : ""}</span></div>`; })()}
     <div class="legend"><span>Compared with the filing for ${d.pp ? longDate(d.pp) : "the prior quarter"}:</span><span><span class="chip c-new">New</span> new position</span><span><span class="chip c-add">+%</span> more shares</span><span><span class="chip c-cut">−%</span> fewer shares</span><span><span class="chip c-hold">Same</span> unchanged</span></div>
     <div class="tbl"><table>${head}<tbody>${first.map(row).join("")}</tbody></table></div>
-    <p class="note">Price lines run from the quarter-end date the holdings were reported for to the latest close. The hollow dot marks the filing date, when the position became public. Prices include dividends.</p>
+    <p class="note">Each line starts at the beginning of the quarter the filing covers. The shaded part is that quarter, when any buying or selling happened; the dashed line is its average closing price, a rough stand-in for the managers' buy price. The % compares today's price with that average. The hollow dot marks the filing date, when the position became public. Prices include dividends.</p>
     ${rest.length ? `<details class="more"><summary>Show the other ${rest.length} positions</summary><div class="tbl"><table>${head}<tbody>${rest.map((r,i)=>row(r,i+20)).join("")}</tbody></table></div></details>` : ""}
     <h3>Exited this quarter</h3>
     ${d.s.length ? `<div class="soldlist">${d.s.map(x=>`<span><b>${esc(x[1]||"")}</b> ${esc(title(x[2]))} · ${fmtM(x[3])}</span>`).join("")}</div>` : `<p class="note">No positions fully sold.</p>`}
@@ -273,11 +283,11 @@ const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = t
 document.addEventListener("mousemove", e => {
   const svg = e.target.closest && e.target.closest(".spark svg");
   if (!svg) { tip.hidden = true; return; }
-  const m = move(svg.dataset.t, svg.dataset.from, svg.dataset.filed); if (!m) return;
+  const d = DATA[svg.dataset.m], m = d && move(svg.dataset.t, d); if (!m) return;
   const r = svg.getBoundingClientRect();
-  let i = Math.round(m.i0 + (e.clientX - r.left) / r.width * (m.i1 - m.i0));
-  i = Math.max(m.i0, Math.min(m.i1, i)); while (i > m.i0 && m.s[i] == null) i--;
-  tip.innerHTML = `${shortDate(PD[i])} ${PD[i].slice(0,4)} · $${m.s[i].toFixed(2)}<br>${sign(m.s[i]/m.s[m.i0]-1)} since ${shortDate(PD[m.i0])}`;
+  let i = Math.round(m.a + (e.clientX - r.left) / r.width * (m.last - m.a));
+  i = Math.max(m.a, Math.min(m.last, i)); while (i > m.a && m.s[i] == null) i--;
+  tip.innerHTML = `${shortDate(PD[i])} ${PD[i].slice(0,4)} · ${money(m.s[i])} (${sign(m.s[i]/m.avg - 1)} vs avg)<br>Quarter avg ${money(m.avg)} · range ${money(m.lo)}–${money(m.hi)}` + (m.retF != null ? `<br>Since filed ${shortDate(PD[m.f])}: ${sign(m.retF)}` : "");
   tip.hidden = false;
   tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 12) + "px";
   tip.style.top = (e.clientY - tip.offsetHeight - 10) + "px";
