@@ -2,12 +2,9 @@ name: Update 13F portfolios
 
 on:
   schedule:
-    # Every day at 01:17 UTC from the 10th to the 25th of Feb, May, Aug and Nov,
-    # the weeks when 13F filings arrive (the deadline is 45 days after each quarter ends).
-    - cron: "17 1 10-25 2,5,8,11 *"
-    # Also on the 1st of every month: GitHub switches off scheduled jobs in a repository
-    # with no activity for 60 days, and this monthly check-in keeps the schedule alive.
-    - cron: "17 1 1 * *"
+    # Every weekday at 22:37 UTC (6:37 am Taiwan time), after the US market closes.
+    # Refreshes prices daily and picks up new 13F filings the day they appear.
+    - cron: "37 22 * * 1-5"
   workflow_dispatch:        # lets you run it any time from the Actions tab
 
 permissions:
@@ -17,6 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20      # never let a stuck run go on for hours
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -31,11 +29,11 @@ jobs:
           git config user.name "13f-bot"
           git config user.email "13f-bot@users.noreply.github.com"
           date -u +%Y-%m-%d > last_checked.txt
-          git add index.html data.json cusip_map.json last_checked.txt
+          git add index.html data.json prices.json cusip_map.json last_checked.txt
           if git diff --cached --quiet; then
             echo "No new filings."
           else
-            git commit -m "Update 13F portfolios $(date -u +%Y-%m-%d)"
+            git commit -m "Update prices and filings $(date -u +%Y-%m-%d)"
             git push
           fi
       - name: Email me about new filings
