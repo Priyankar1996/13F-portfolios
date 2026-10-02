@@ -182,6 +182,7 @@ def add_tickers(data):
         for r in d["r"] + d["s"]:
             r[1] = cmap.get(r[0], "")
 
+
 def summary(old, new, managers):
     """Markdown note listing managers whose filing changed since the last build, for the email."""
     lines = []
@@ -203,13 +204,74 @@ def summary(old, new, managers):
         lines.append("")
     return "\n".join(lines)
 
-def render(data, managers):
+
+BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+
+
+def yahoo_closes(ticker, start):
+    """Daily closes (adjusted for splits and dividends) from Yahoo Finance: {date: price}."""
+    import datetime as dt
+    p1 = int(dt.datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
+    p2 = int(datetime.now(timezone.utc).timestamp())
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?period1={p1}&period2={p2}&interval=1d&events=div,split"
+    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        res = json.loads(r.read())["chart"]["result"][0]
+    ts = res.get("timestamp") or []
+    adj = (res["indicators"].get("adjclose") or [{}])[0].get("adjclose") or res["indicators"]["quote"][0]["close"]
+    return {datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d"): v for t, v in zip(ts, adj) if v}
+
+
+def stooq_closes(ticker, start):
+    """Fallback source: Stooq daily CSV (no key needed)."""
+    url = f"https://stooq.com/q/d/l/?s={ticker.lower().replace('.', '-')}.us&i=d&d1={start.replace('-', '')}"
+    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        lines = r.read().decode().strip().splitlines()[1:]
+    out = {}
+    for ln in lines:
+        f = ln.split(",")
+        if len(f) >= 5 and f[4] not in ("", "null"):
+            out[f[0]] = float(f[4])
+    return out
+
+
+def fetch_prices(data):
+    """Daily prices for every holding since the earliest quarter-end on the page, plus SPY as a benchmark."""
+    periods = [d["p"] for d in data.values() if d.get("p")]
+    if not periods:
+        return {}
+    from datetime import date, timedelta
+    start = (date.fromisoformat(min(periods)) - timedelta(days=10)).isoformat()
+    tickers = sorted({r[1] for d in data.values() for r in d["r"] if r[1] and " " not in r[1]} | {"SPY"})
+    series, failed = {}, []
+    for t in tickers:
+        got = None
+        for src in (yahoo_closes, stooq_closes):
+            try:
+                got = src(t, start)
+                if got: break
+            except Exception:
+                got = None
+        if got: series[t] = got
+        else: failed.append(t)
+        time.sleep(0.3)
+    if failed:
+        print(f"No prices for {len(failed)} tickers: {', '.join(failed)}")
+    days = sorted(series.get("SPY", {}) or {d for s in series.values() for d in s})
+    sig = lambda v: float(f"{v:.5g}")
+    return {"dates": days,
+            "px": {t: [sig(s[d]) if d in s else None for d in days] for t, s in series.items()}}
+
+
+def render(data, managers, prices=None):
     tpl = open(P("template.html")).read()
     meta = {m["key"]: [m["name"], m["firm"]] for m in managers if m["key"] in data}
     built = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     html = (tpl.replace("__DATA__", json.dumps(data, separators=(",", ":")))
                .replace("__META__", json.dumps(meta, separators=(",", ":")))
-               .replace("__BUILT__", built))
+               .replace("__BUILT__", built)
+               .replace("__PRICES__", json.dumps(prices or {}, separators=(",", ":"))))
     open(P("index.html"), "w").write(html)
 
 
@@ -217,6 +279,7 @@ def main():
     managers = json.load(open(P("managers.json")))["managers"]
     if len(sys.argv) > 2 and sys.argv[1] == "--offline":
         data = json.load(open(sys.argv[2]))
+        prices = json.load(open(sys.argv[3])) if len(sys.argv) > 3 else {}
     else:
         if not UA or "@" not in UA:
             sys.exit("Set SEC_USER_AGENT to 'Your Name your@email' (the SEC requires it).")
@@ -228,7 +291,10 @@ def main():
         with open(P("update_summary.md"), "w") as f:   # read by the workflow to send the email; not committed
             f.write(note)
         print(note or "No new filings since the last build.")
-    render(data, managers)
+        prices = fetch_prices(data)
+        json.dump(prices, open(P("prices.json"), "w"), separators=(",", ":"))
+        print("Prices for", len(prices.get("px", {})), "tickers through", (prices.get("dates") or ["?"])[-1])
+    render(data, managers, prices)
     print("Wrote index.html for", len(data), "managers")
 
 
