@@ -2,7 +2,7 @@
 
 A one-page site showing the latest SEC 13F holdings of nine managers (Druckenmiller, Tepper, Ackman, Buffett, Klarman, Einhorn, Li Lu, Loeb, Pabrai), what changed since their previous filing, and which stocks they hold in common.
 
-The page rebuilds itself: a GitHub Action checks the SEC every day while 13F filings are arriving (10th–25th of February, May, August and November) and commits a new `index.html` when anything changed. GitHub Pages serves it.
+The page rebuilds itself: every weekday after the US close, a GitHub Action checks the SEC for new 13F filings, refreshes prices for every holding (Yahoo Finance, with Stooq as a fallback) and commits a new `index.html`. GitHub Pages serves it. Each holding shows a price line and % change since the quarter-end its filing reports, with the filing date marked.
 
 ## One-time setup
 
@@ -12,6 +12,10 @@ The page rebuilds itself: a GitHub Action checks the SEC every day while 13F fil
    The SEC requires every automated request to identify a contact; it is only sent to sec.gov.
 3. **Turn on Pages.** Settings → Pages → Source: *Deploy from a branch* → Branch: `main`, folder `/ (root)` → Save.
 4. **Run it once.** Actions tab → *Update 13F portfolios* → *Run workflow*. When it finishes (about 3–5 minutes), the site is at `https://<your-username>.github.io/<repo-name>/`.
+
+## Email when the page updates
+
+Whenever a run finds new filings, it opens an issue titled "New 13F filings: …" that lists each manager's new positions, big additions and full exits, and @-mentions you. GitHub emails that to the address on your account. Nothing to set up; if emails don't arrive, check GitHub → Settings → Notifications → Email is ticked for "Participating, @mentions and custom". Close the issue after reading.
 
 ## Changing the managers
 
