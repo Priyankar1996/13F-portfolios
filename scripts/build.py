@@ -206,62 +206,109 @@ def summary(old, new, managers):
 
 
 BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+PRICE_TIMEOUT = 10          # seconds per request
+PRICE_BUDGET = 8 * 60       # stop fetching prices after this many seconds and keep what we have
 
 
-def yahoo_closes(ticker, start):
-    """Daily closes (adjusted for splits and dividends) from Yahoo Finance: {date: price}."""
+def _get_text(url, extra=None):
+    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA, "Accept": "*/*", **(extra or {})})
+    with urllib.request.urlopen(req, timeout=PRICE_TIMEOUT) as r:
+        return r.read().decode("utf-8", "replace")
+
+
+def yahoo_closes(ticker, start, host="query1"):
+    """Daily closes adjusted for splits and dividends: {date: price}."""
     import datetime as dt
     p1 = int(dt.datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
     p2 = int(datetime.now(timezone.utc).timestamp())
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?period1={p1}&period2={p2}&interval=1d&events=div,split"
-    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        res = json.loads(r.read())["chart"]["result"][0]
+    res = json.loads(_get_text(f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}"
+                               f"?period1={p1}&period2={p2}&interval=1d&events=div,split"))["chart"]["result"][0]
     ts = res.get("timestamp") or []
     adj = (res["indicators"].get("adjclose") or [{}])[0].get("adjclose") or res["indicators"]["quote"][0]["close"]
     return {datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d"): v for t, v in zip(ts, adj) if v}
 
 
-def stooq_closes(ticker, start):
-    """Fallback source: Stooq daily CSV (no key needed)."""
-    url = f"https://stooq.com/q/d/l/?s={ticker.lower().replace('.', '-')}.us&i=d&d1={start.replace('-', '')}"
-    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        lines = r.read().decode().strip().splitlines()[1:]
+def yahoo2_closes(ticker, start):
+    return yahoo_closes(ticker, start, "query2")
+
+
+def nasdaq_closes(ticker, start):
+    """Nasdaq.com historical prices (not dividend-adjusted)."""
     out = {}
-    for ln in lines:
-        f = ln.split(",")
-        if len(f) >= 5 and f[4] not in ("", "null"):
-            out[f[0]] = float(f[4])
+    for cls in ("stocks", "etf"):
+        j = json.loads(_get_text(f"https://api.nasdaq.com/api/quote/{ticker.replace('-', '.')}/historical"
+                                 f"?assetclass={cls}&fromdate={start}&limit=9999",
+                                 {"Accept": "application/json", "Origin": "https://www.nasdaq.com", "Referer": "https://www.nasdaq.com/"}))
+        rows = (((j or {}).get("data") or {}).get("tradesTable") or {}).get("rows") or []
+        for r in rows:
+            m, d, y = r["date"].split("/")
+            v = float(r["close"].replace("$", "").replace(",", ""))
+            out[f"{y}-{m}-{d}"] = v
+        if out:
+            break
     return out
 
 
-def fetch_prices(data):
-    """Daily prices for every holding since the earliest quarter-end on the page, plus SPY as a benchmark."""
+def stooq_closes(ticker, start):
+    lines = _get_text(f"https://stooq.com/q/d/l/?s={ticker.lower()}.us&i=d&d1={start.replace('-', '')}").strip().splitlines()
+    out = {}
+    for ln in lines[1:]:
+        f = ln.split(",")
+        if len(f) >= 5 and f[4] not in ("", "null"):
+            try: out[f[0]] = float(f[4])
+            except ValueError: pass
+    return out
+
+
+def fetch_prices(data, old=None):
+    """Daily prices for every holding since the earliest quarter-end on the page, plus SPY as a benchmark.
+    Each source is tried once on SPY first; sources that don't answer are skipped for every stock, so a
+    blocked site costs seconds, not hours. If nothing works, the previous prices are kept."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import date, timedelta
     periods = [d["p"] for d in data.values() if d.get("p")]
     if not periods:
-        return {}
-    from datetime import date, timedelta
+        return old or {}
     start = (date.fromisoformat(min(periods)) - timedelta(days=10)).isoformat()
+    sources = []
+    for name, fn in (("Yahoo", yahoo_closes), ("Yahoo (query2)", yahoo2_closes), ("Nasdaq", nasdaq_closes), ("Stooq", stooq_closes)):
+        t0 = time.time()
+        try:
+            ok = len(fn("SPY", start)) > 20
+        except Exception as e:
+            ok = False; print(f"  {name}: unavailable ({type(e).__name__}: {str(e)[:80]})")
+        if ok:
+            sources.append(fn); print(f"  {name}: working ({time.time() - t0:.1f}s)")
+    if not sources:
+        print("No price source reachable; keeping the previous prices.")
+        return old or {}
     tickers = sorted({r[1] for d in data.values() for r in d["r"] if r[1] and " " not in r[1]} | {"SPY"})
-    series, failed = {}, []
-    for t in tickers:
-        got = None
-        for src in (yahoo_closes, stooq_closes):
+    deadline = time.time() + PRICE_BUDGET
+
+    def one(t):
+        for fn in sources:
+            if time.time() > deadline:
+                return t, None
             try:
-                got = src(t, start)
-                if got: break
+                got = fn(t, start)
+                if got: return t, got
             except Exception:
-                got = None
-        if got: series[t] = got
-        else: failed.append(t)
-        time.sleep(0.3)
+                pass
+        return t, None
+
+    series, failed = {}, []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for fut in as_completed([ex.submit(one, t) for t in tickers]):
+            t, got = fut.result()
+            if got: series[t] = got
+            else: failed.append(t)
     if failed:
-        print(f"No prices for {len(failed)} tickers: {', '.join(failed)}")
-    days = sorted(series.get("SPY", {}) or {d for s in series.values() for d in s})
+        print(f"No prices for {len(failed)} tickers: {', '.join(sorted(failed))}")
+    if "SPY" not in series and old:
+        return old
+    days = sorted(series.get("SPY") or {d for s in series.values() for d in s})
     sig = lambda v: float(f"{v:.5g}")
-    return {"dates": days,
-            "px": {t: [sig(s[d]) if d in s else None for d in days] for t, s in series.items()}}
+    return {"dates": days, "px": {t: [sig(s[d]) if d in s else None for d in days] for t, s in series.items()}}
 
 
 def render(data, managers, prices=None):
@@ -291,7 +338,9 @@ def main():
         with open(P("update_summary.md"), "w") as f:   # read by the workflow to send the email; not committed
             f.write(note)
         print(note or "No new filings since the last build.")
-        prices = fetch_prices(data)
+        old_px = json.load(open(P("prices.json"))) if os.path.exists(P("prices.json")) else None
+        print("Fetching prices")
+        prices = fetch_prices(data, old_px)
         json.dump(prices, open(P("prices.json"), "w"), separators=(",", ":"))
         print("Prices for", len(prices.get("px", {})), "tickers through", (prices.get("dates") or ["?"])[-1])
     render(data, managers, prices)
