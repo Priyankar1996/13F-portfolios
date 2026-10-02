@@ -28,6 +28,7 @@ body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);margin:0}
 header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:22px}
 h1{font:800 clamp(26px,4vw,36px)/1.05 var(--f-display);font-stretch:112%;letter-spacing:-.01em;margin:0;text-wrap:balance}
 .sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.controls{display:flex;flex-wrap:wrap;gap:8px}
 .views{display:flex;gap:4px;background:var(--soft);padding:4px;border-radius:8px}
 .views button{font:600 13px var(--f-body);border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:6px;cursor:pointer}
 .views button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -106,9 +107,16 @@ footer{color:var(--muted);font-size:12.5px;margin-top:22px;max-width:90ch}
       <h1>Superinvestor Portfolios</h1>
       <p class="sub" id="sub"></p>
     </div>
+    <div class="controls">
+    <div class="views" role="group" aria-label="Theme" id="themeSw">
+      <button data-th="light" aria-pressed="false" title="Light theme">Light</button>
+      <button data-th="dark" aria-pressed="false" title="Dark theme">Dark</button>
+      <button data-th="auto" aria-pressed="true" title="Follow your device setting">Auto</button>
+    </div>
     <div class="views" role="group" aria-label="View">
       <button id="v-port" aria-pressed="true">Portfolios</button>
       <button id="v-over" aria-pressed="false">Overlap</button>
+    </div>
     </div>
   </header>
 
@@ -123,6 +131,18 @@ footer{color:var(--muted);font-size:12.5px;margin-top:22px;max-width:90ch}
 </div>
 
 <script>
+(function(){
+  const root = document.documentElement;
+  const apply = th => {
+    if (th === "light" || th === "dark") root.setAttribute("data-theme", th); else root.removeAttribute("data-theme");
+    document.querySelectorAll("#themeSw button").forEach(b => b.setAttribute("aria-pressed", b.dataset.th === (th || "auto")));
+  };
+  let saved = "auto"; try { saved = localStorage.getItem("sp-theme") || "auto"; } catch(e) {}
+  apply(saved);
+  document.querySelectorAll("#themeSw button").forEach(b => b.addEventListener("click", () => {
+    apply(b.dataset.th); try { localStorage.setItem("sp-theme", b.dataset.th); } catch(e) {}
+  }));
+})();
 const DATA = __DATA__;
 const META = __META__;
 const BUILT = "__BUILT__";
@@ -147,7 +167,7 @@ function move(t, d){
   let f = idxOnOrAfter(d.d); if (f >= 0) { while (f <= last && s[f] == null) f++; if (f > last) f = -1; }
   return {s, a, e, last, f, avg, lo, hi, now: s[last], ret: s[last]/avg - 1, retF: f >= 0 ? s[last]/s[f] - 1 : null};
 }
-const sign = x => (x >= 0 ? "+" : "−") + Math.abs(x*100).toFixed(1) + "%";
+const sign = x => (Math.abs(x) < 0.0005 ? "" : x > 0 ? "+" : "−") + Math.abs(x*100).toFixed(1) + "%";
 const money = v => "$" + (v >= 1000 ? v.toFixed(0) : v >= 100 ? v.toFixed(1) : v.toFixed(2));
 function spark(t, d){
   const m = move(t, d);
@@ -224,7 +244,7 @@ function select(m){
   const row = (r,i) => `<tr><td class="rank">${i+1}</td><td><span class="tk">${esc(r[1] || "—")}</span> <span class="nm">${esc(title(r[2]))}</span></td>
     <td class="wcell"><div class="wbar"><span class="t">${pct(r[3]/s.tot)}</span><span class="b" style="width:${Math.max(2, r[3]/max*70)}px"></span></div></td>
     <td class="num">${fmtM(r[3])}</td><td class="num shares">${fmtSh(r[4])}</td><td class="r">${chip(r[5])}</td><td>${spark(r[1], d)}</td></tr>`;
-  const head = `<thead><tr><th></th><th>Holding</th><th>Weight</th><th class="r">Value</th><th class="r">Shares</th><th class="r">Vs prior</th><th class="r">Price vs ${d.p ? `${shortDate(PD[idxOnOrAfter(qStartOf(d))] || qStartOf(d))}–${shortDate(d.p)}` : "quarter"} avg</th></tr></thead>`;
+  const head = `<thead><tr><th></th><th>Holding</th><th>Weight</th><th class="r">Value</th><th class="r">Shares</th><th class="r">Vs prior</th><th class="r">Price vs ${d.p ? `${(() => { const qs = qStartOf(d); let i = idxOnOrAfter(qs); if (PD[i] === qs) i++; return shortDate(PD[i] || qs); })()}–${shortDate(d.p)}` : "quarter"} avg</th></tr></thead>`;
   const first = d.r.slice(0,20), rest = d.r.slice(20);
   const opts = (d.o[0]||d.o[1]) ? `<p class="note">Also reports options not counted above: ${d.o[0]?fmtM(d.o[0])+" of puts":""}${d.o[0]&&d.o[1]?" and ":""}${d.o[1]?fmtM(d.o[1])+" of calls":""} (notional value of the underlying shares).</p>` : "";
   document.getElementById("panel").innerHTML = `
