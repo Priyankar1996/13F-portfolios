@@ -1,0 +1,57 @@
+name: Update 13F portfolios
+
+on:
+  schedule:
+    # Every day at 01:17 UTC from the 10th to the 25th of Feb, May, Aug and Nov,
+    # the weeks when 13F filings arrive (the deadline is 45 days after each quarter ends).
+    - cron: "17 1 10-25 2,5,8,11 *"
+    # Also on the 1st of every month: GitHub switches off scheduled jobs in a repository
+    # with no activity for 60 days, and this monthly check-in keeps the schedule alive.
+    - cron: "17 1 1 * *"
+  workflow_dispatch:        # lets you run it any time from the Actions tab
+
+permissions:
+  contents: write
+  issues: write             # used to send you the "new filings" email
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch filings and rebuild the page
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: python scripts/build.py
+      - name: Commit if anything changed
+        run: |
+          git config user.name "13f-bot"
+          git config user.email "13f-bot@users.noreply.github.com"
+          date -u +%Y-%m-%d > last_checked.txt
+          git add index.html data.json cusip_map.json last_checked.txt
+          if git diff --cached --quiet; then
+            echo "No new filings."
+          else
+            git commit -m "Update 13F portfolios $(date -u +%Y-%m-%d)"
+            git push
+          fi
+      - name: Email me about new filings
+        # Opens an issue that @-mentions you; GitHub emails it to your account address.
+        if: hashFiles('update_summary.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          if [ ! -s update_summary.md ]; then echo "Nothing new to report."; exit 0; fi
+          MANAGERS=$(grep '^### ' update_summary.md | sed 's/^### //; s/ (.*//' | paste -sd ',' - | sed 's/,/, /g')
+          {
+            echo "@${OWNER} new 13F filings are on your page: https://$(echo "$OWNER" | tr 'A-Z' 'a-z').github.io/${REPO}/"
+            echo
+            cat update_summary.md
+            echo "_Not investment advice. Close this issue once you've read it._"
+          } > body.md
+          gh issue create --title "New 13F filings: ${MANAGERS}" --body-file body.md
