@@ -266,10 +266,12 @@ def fetch_prices(data, old=None):
     blocked site costs seconds, not hours. If nothing works, the previous prices are kept."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import date, timedelta
-    periods = [d["p"] for d in data.values() if d.get("p")]
-    if not periods:
+    # start at the beginning of the quarter each filing covers (the previous quarter-end), so the page
+    # can show the price range during the quarter when the shares were bought
+    starts = [d.get("pp") or (date.fromisoformat(d["p"]) - timedelta(days=92)).isoformat() for d in data.values() if d.get("p")]
+    if not starts:
         return old or {}
-    start = (date.fromisoformat(min(periods)) - timedelta(days=10)).isoformat()
+    start = (date.fromisoformat(min(starts)) - timedelta(days=7)).isoformat()
     sources = []
     for name, fn in (("Yahoo", yahoo_closes), ("Yahoo (query2)", yahoo2_closes), ("Nasdaq", nasdaq_closes), ("Stooq", stooq_closes)):
         t0 = time.time()
