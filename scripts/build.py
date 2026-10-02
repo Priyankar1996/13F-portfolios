@@ -182,6 +182,26 @@ def add_tickers(data):
         for r in d["r"] + d["s"]:
             r[1] = cmap.get(r[0], "")
 
+def summary(old, new, managers):
+    """Markdown note listing managers whose filing changed since the last build, for the email."""
+    lines = []
+    for m in managers:
+        k = m["key"]; d = new.get(k)
+        if not d or (old.get(k, {}).get("d") == d["d"] and old.get(k, {}).get("p") == d["p"]):
+            continue
+        tot = sum(r[3] for r in d["r"]) or 1
+        tag = lambda r: f"{r[1] or r[2]} ({r[3] / tot:.1%})"
+        new_pos = [tag(r) for r in d["r"] if r[5] == "N"][:6]
+        adds = sorted([r for r in d["r"] if isinstance(r[5], int) and r[5] >= 20], key=lambda r: -r[3])[:6]
+        exits = [x[1] or x[2] for x in d["s"]][:6]
+        lines.append(f"### {m['name']} ({m['firm']})")
+        lines.append(f"Holdings as of {d['p']}, filed {d['d']}: {len(d['r'])} positions, ${d['t'] / 1000:,.1f}B reported.")
+        lines.append(f"- Top holdings: {', '.join(tag(r) for r in d['r'][:5])}")
+        if new_pos: lines.append(f"- New: {', '.join(new_pos)}")
+        if adds: lines.append(f"- Added 20%+: {', '.join(f'{r[1] or r[2]} (+{r[5]}%)' for r in adds)}")
+        if exits: lines.append(f"- Sold out: {', '.join(exits)}")
+        lines.append("")
+    return "\n".join(lines)
 
 def render(data, managers):
     tpl = open(P("template.html")).read()
@@ -200,9 +220,14 @@ def main():
     else:
         if not UA or "@" not in UA:
             sys.exit("Set SEC_USER_AGENT to 'Your Name your@email' (the SEC requires it).")
+        old = json.load(open(P("data.json"))) if os.path.exists(P("data.json")) else {}
         data = build_data(managers)
         add_tickers(data)
         json.dump(data, open(P("data.json"), "w"), separators=(",", ":"))
+        note = summary(old, data, managers)
+        with open(P("update_summary.md"), "w") as f:   # read by the workflow to send the email; not committed
+            f.write(note)
+        print(note or "No new filings since the last build.")
     render(data, managers)
     print("Wrote index.html for", len(data), "managers")
 
