@@ -1,0 +1,77 @@
+{
+ "managers": [
+  {
+   "key": "Druckenmiller",
+   "name": "Stanley Druckenmiller",
+   "firm": "Duquesne Family Office",
+   "ciks": [
+    1536411
+   ]
+  },
+  {
+   "key": "Tepper",
+   "name": "David Tepper",
+   "firm": "Appaloosa",
+   "ciks": [
+    1656456
+   ]
+  },
+  {
+   "key": "Ackman",
+   "name": "Bill Ackman",
+   "firm": "Pershing Square",
+   "ciks": [
+    2026053,
+    1336528
+   ]
+  },
+  {
+   "key": "Buffett",
+   "name": "Warren Buffett",
+   "firm": "Berkshire Hathaway",
+   "ciks": [
+    1067983
+   ]
+  },
+  {
+   "key": "Klarman",
+   "name": "Seth Klarman",
+   "firm": "Baupost Group",
+   "ciks": [
+    1061768
+   ]
+  },
+  {
+   "key": "Einhorn",
+   "name": "David Einhorn",
+   "firm": "Greenlight / DME Capital",
+   "ciks": [
+    1489933
+   ]
+  },
+  {
+   "key": "Li Lu",
+   "name": "Li Lu",
+   "firm": "Himalaya Capital",
+   "ciks": [
+    1709323
+   ]
+  },
+  {
+   "key": "Loeb",
+   "name": "Dan Loeb",
+   "firm": "Third Point",
+   "ciks": [
+    1040273
+   ]
+  },
+  {
+   "key": "Pabrai",
+   "name": "Mohnish Pabrai",
+   "firm": "Dalal Street",
+   "ciks": [
+    1549575
+   ]
+  }
+ ]
+}

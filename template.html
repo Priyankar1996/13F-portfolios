@@ -1,0 +1,227 @@
+<title>Superinvestor Portfolios</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,600;112,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: filing-room ledger. Manager roster on the left, the selected 13F as a ranked position ledger on the right; overlap matrix as a second view. */
+:root{
+  --bg:#f3f5f6; --surface:#ffffff; --ink:#15212b; --muted:#5d6b76; --line:#dbe1e5; --soft:#eaeef1;
+  --accent:#1d5b86; --accent-soft:#dbe8f2;
+  --new:#1d5b86; --add:#1f7a4d; --cut:#a86412; --sold:#b23a3a; --hold:#7a8790;
+  --bar:#9fbcd3;
+  --f-display:"Archivo","Arial Narrow",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-data:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1519; --surface:#161e24; --ink:#e4eaee; --muted:#93a2ad; --line:#26323b; --soft:#1c262d;
+  --accent:#7fb3db; --accent-soft:#1d3344;
+  --new:#7fb3db; --add:#5cc28f; --cut:#e0a14f; --sold:#ec7b7b; --hold:#7d8b95; --bar:#335a78; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1519; --surface:#161e24; --ink:#e4eaee; --muted:#93a2ad; --line:#26323b; --soft:#1c262d;
+  --accent:#7fb3db; --accent-soft:#1d3344;
+  --new:#7fb3db; --add:#5cc28f; --cut:#e0a14f; --sold:#ec7b7b; --hold:#7d8b95; --bar:#335a78; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 48px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:22px}
+h1{font:800 clamp(26px,4vw,36px)/1.05 var(--f-display);font-stretch:112%;letter-spacing:-.01em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.views{display:flex;gap:4px;background:var(--soft);padding:4px;border-radius:8px}
+.views button{font:600 13px var(--f-body);border:0;background:transparent;color:var(--muted);padding:7px 14px;border-radius:6px;cursor:pointer}
+.views button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+button:focus-visible,.mgr:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;align-items:start}
+.roster{display:flex;flex-direction:column;gap:6px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
+.mgr{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;width:100%;background:transparent;border:1px solid transparent;border-radius:8px;padding:10px 12px;cursor:pointer;color:var(--ink);font:inherit}
+.mgr:hover{background:var(--soft)}
+.mgr[aria-selected="true"]{background:var(--surface);border-color:var(--line)}
+.mgr .n{font-weight:600}
+.mgr .a{font:500 13px var(--f-data);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.mgr .fm{grid-column:1/-1;font-size:12.5px;color:var(--muted)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px 22px 18px;min-width:0}
+.ph{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px;align-items:baseline}
+.ph h2{font:800 26px/1.1 var(--f-display);font-stretch:112%;margin:0}
+.ph .meta{color:var(--muted);font-size:13px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:16px 0 18px}
+.stat{background:var(--surface);padding:10px 12px}
+.stat .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.stat .v{font:500 19px var(--f-data);font-variant-numeric:tabular-nums;margin-top:2px}
+.stat .d{font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);margin-bottom:8px}
+.chip{display:inline-block;font:600 11.5px var(--f-data);padding:2px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.c-new{color:var(--new)} .c-add{color:var(--add)} .c-cut{color:var(--cut)} .c-sold{color:var(--sold)} .c-hold{color:var(--hold);border-style:dashed}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font:600 11.5px var(--f-body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--soft);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+td.num{font:400 13.5px var(--f-data);text-align:right;white-space:nowrap}
+.rank{color:var(--muted);font:400 12px var(--f-data);width:28px}
+.tk{font:600 13.5px var(--f-data)}
+.nm{color:var(--muted);font-size:13px}
+.wcell{min-width:150px}
+.wbar{display:flex;align-items:center;gap:8px}
+.wbar span.b{height:8px;border-radius:2px;background:var(--bar);flex:none}
+.wbar span.t{font:500 13.5px var(--f-data);min-width:46px;text-align:right}
+.shares{color:var(--muted)}
+details.more{margin-top:10px}
+details.more summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:13.5px;padding:6px 0}
+h3{font:700 14px var(--f-body);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 6px}
+.soldlist{display:flex;flex-wrap:wrap;gap:6px}
+.soldlist span{font-size:13px;background:var(--soft);border-radius:6px;padding:4px 8px}
+.soldlist b{font:600 12.5px var(--f-data)}
+.note{font-size:12.5px;color:var(--muted);margin-top:14px;max-width:80ch}
+.ov .cell{display:inline-block;min-width:44px;text-align:right;font:500 12.5px var(--f-data);padding:2px 6px;border-radius:4px}
+.ov td.m{text-align:center;padding:4px}
+.ov th.m{text-align:center;font-size:11px}
+footer{color:var(--muted);font-size:12.5px;margin-top:22px;max-width:90ch}
+@media (max-width:820px){
+  .layout{grid-template-columns:1fr}
+  .roster{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:4px}
+  .mgr{min-width:170px}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .panel{padding:16px 14px}
+  .wrap{padding-inline:16px}
+  .wcell{min-width:110px}
+  .wbar span.b{max-width:60px}
+}
+@media (prefers-reduced-motion:no-preference){.mgr,.views button{transition:background .15s}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Superinvestor Portfolios</h1>
+      <p class="sub" id="sub"></p>
+    </div>
+    <div class="views" role="group" aria-label="View">
+      <button id="v-port" aria-pressed="true">Portfolios</button>
+      <button id="v-over" aria-pressed="false">Overlap</button>
+    </div>
+  </header>
+
+  <div id="portView" class="layout">
+    <nav class="roster" id="roster" role="tablist" aria-label="Managers"></nav>
+    <section class="panel" id="panel" aria-live="polite"></section>
+  </div>
+
+  <section id="overView" class="panel" hidden></section>
+
+  <footer>Source: SEC Form 13F-HR filings. A 13F lists US-listed long positions only: no shorts, cash, bonds or foreign shares, and it is 45 days old when published. Weights are each position's share of reported long stock value. Options are shown separately and excluded from weights. Not investment advice.</footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const META = __META__;
+const BUILT = "__BUILT__";
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const longDate = s => { const [y,m,d] = s.split("-").map(Number); return `${MONTHS[m-1]} ${d}, ${y}`; };
+const ORDER = Object.keys(META).filter(m => DATA[m]);
+(() => {
+  const per = ORDER.map(m => DATA[m].p).filter(Boolean).sort().pop();
+  const behind = ORDER.filter(m => DATA[m].p && DATA[m].p < per).map(m => META[m][0]);
+  document.getElementById("sub").textContent =
+    `Latest 13F filing for each of ${ORDER.length} managers (holdings as of ${longDate(per)}). ` +
+    `Changes compare share counts with each manager's previous filing.` +
+    (behind.length ? ` Still showing an older filing for ${behind.join(", ")}.` : "") + ` Updated ${longDate(BUILT)}.`;
+})();
+const fmtM = v => v >= 1000 ? "$" + (v/1000).toFixed(v >= 100000 ? 0 : 1) + "B" : "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(1)) + "M";
+const fmtSh = n => n >= 1e6 ? (n/1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e3 ? (n/1e3).toFixed(0) + "K" : String(n);
+const pct = (x, d=1) => (x*100).toFixed(d) + "%";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const title = s => s.toLowerCase().replace(/(^|[\s&(\/-])([a-z])/g, (m,a,c) => a + c.toUpperCase()).replace(/\s+/g," ").trim();
+
+function chip(ch){
+  if (ch === "N") return '<span class="chip c-new">New</span>';
+  if (ch === 0) return '<span class="chip c-hold">Same</span>';
+  if (ch > 0) return `<span class="chip c-add">+${ch}%</span>`;
+  return `<span class="chip c-cut">${ch}%</span>`;
+}
+
+function summary(m){
+  const d = DATA[m], tot = d.r.reduce((a,r)=>a+r[3],0);
+  const top10 = d.r.slice(0,10).reduce((a,r)=>a+r[3],0)/tot;
+  const nNew = d.r.filter(r=>r[5]==="N").length, nAdd = d.r.filter(r=>typeof r[5]==="number"&&r[5]>0).length;
+  const nCut = d.r.filter(r=>typeof r[5]==="number"&&r[5]<0).length;
+  return {tot, top10, nNew, nAdd, nCut, nSold:d.s.length};
+}
+
+const roster = document.getElementById("roster");
+ORDER.forEach((m,i) => {
+  const d = DATA[m], s = summary(m);
+  const b = document.createElement("button");
+  b.className = "mgr"; b.id = "mgr-" + i; b.setAttribute("role","tab"); b.dataset.m = m;
+  b.innerHTML = `<span class="n">${META[m][0]}</span><span class="a">${fmtM(s.tot)}</span><span class="fm">${META[m][1]} · ${d.r.length} positions</span>`;
+  b.addEventListener("click", () => select(m));
+  roster.appendChild(b);
+});
+
+function select(m){
+  document.querySelectorAll(".mgr").forEach(b => b.setAttribute("aria-selected", b.dataset.m === m));
+  try { localStorage.setItem("sp-mgr", m); } catch(e) {}
+  const d = DATA[m], s = summary(m), max = d.r[0][3];
+  const chg = d.pt ? (s.tot/d.pt - 1) : null;
+  const row = (r,i) => `<tr><td class="rank">${i+1}</td><td><span class="tk">${esc(r[1] || "—")}</span> <span class="nm">${esc(title(r[2]))}</span></td>
+    <td class="wcell"><div class="wbar"><span class="t">${pct(r[3]/s.tot)}</span><span class="b" style="width:${Math.max(2, r[3]/max*120)}px"></span></div></td>
+    <td class="num">${fmtM(r[3])}</td><td class="num shares">${fmtSh(r[4])}</td><td class="r">${chip(r[5])}</td></tr>`;
+  const head = `<thead><tr><th></th><th>Holding</th><th>Weight</th><th class="r">Value</th><th class="r">Shares</th><th class="r">Vs prior</th></tr></thead>`;
+  const first = d.r.slice(0,20), rest = d.r.slice(20);
+  const opts = (d.o[0]||d.o[1]) ? `<p class="note">Also reports options not counted above: ${d.o[0]?fmtM(d.o[0])+" of puts":""}${d.o[0]&&d.o[1]?" and ":""}${d.o[1]?fmtM(d.o[1])+" of calls":""} (notional value of the underlying shares).</p>` : "";
+  document.getElementById("panel").innerHTML = `
+    <div class="ph"><h2>${META[m][0]}</h2><span class="meta">${esc(title(d.f))} · holdings as of ${d.p ? longDate(d.p) : "?"} · filed ${d.d}</span></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Reported stocks</div><div class="v">${fmtM(s.tot)}</div><div class="d">${chg===null?"":(chg>=0?"+":"")+pct(chg,0)+" vs prior"}</div></div>
+      <div class="stat"><div class="k">Positions</div><div class="v">${d.r.length}</div><div class="d">top 10 = ${pct(s.top10,0)}</div></div>
+      <div class="stat"><div class="k">Bought</div><div class="v">${s.nNew + s.nAdd}</div><div class="d">${s.nNew} new, ${s.nAdd} added</div></div>
+      <div class="stat"><div class="k">Sold</div><div class="v">${s.nSold + s.nCut}</div><div class="d">${s.nSold} exited, ${s.nCut} trimmed</div></div>
+    </div>
+    <div class="legend"><span>Compared with the filing for ${d.pp ? longDate(d.pp) : "the prior quarter"}:</span><span><span class="chip c-new">New</span> new position</span><span><span class="chip c-add">+%</span> more shares</span><span><span class="chip c-cut">−%</span> fewer shares</span><span><span class="chip c-hold">Same</span> unchanged</span></div>
+    <div class="tbl"><table>${head}<tbody>${first.map(row).join("")}</tbody></table></div>
+    ${rest.length ? `<details class="more"><summary>Show the other ${rest.length} positions</summary><div class="tbl"><table>${head}<tbody>${rest.map((r,i)=>row(r,i+20)).join("")}</tbody></table></div></details>` : ""}
+    <h3>Exited this quarter</h3>
+    ${d.s.length ? `<div class="soldlist">${d.s.map(x=>`<span><b>${esc(x[1]||"")}</b> ${esc(title(x[2]))} · ${fmtM(x[3])}</span>`).join("")}</div>` : `<p class="note">No positions fully sold.</p>`}
+    ${opts}`;
+}
+
+function overlap(){
+  const by = {};
+  ORDER.forEach(m => {
+    const d = DATA[m], tot = d.r.reduce((a,r)=>a+r[3],0);
+    d.r.forEach(r => {
+      const t = r[1] === "GOOG" ? "GOOGL" : r[1]; if (!t) return;
+      const o = by[t] = by[t] || {t, n:r[2], w:{}, ch:{}};
+      o.w[m] = (o.w[m]||0) + r[3]/tot; o.ch[m] = r[5];
+    });
+  });
+  const rows = Object.values(by).filter(o => Object.keys(o.w).length >= 2)
+    .sort((a,b) => Object.keys(b.w).length - Object.keys(a.w).length || Object.values(b.w).reduce((x,y)=>x+y,0) - Object.values(a.w).reduce((x,y)=>x+y,0));
+  const shade = w => `background:color-mix(in srgb, var(--accent) ${Math.min(70, 8 + w*260)}%, transparent);color:${w>0.12?"var(--surface)":"var(--ink)"}`;
+  const short = {"Druckenmiller":"Druck.","Li Lu":"Li Lu"};
+  document.getElementById("overView").innerHTML = `
+    <div class="ph"><h2>Shared holdings</h2><span class="meta">${rows.length} stocks held by two or more managers · cell = weight in that manager's portfolio</span></div>
+    <div class="tbl ov" style="margin-top:14px"><table>
+      <thead><tr><th>Stock</th><th class="r">Held by</th>${ORDER.map(m=>`<th class="m">${short[m]||m}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(o=>`<tr><td><span class="tk">${esc(o.t)}</span> <span class="nm">${esc(title(o.n))}</span></td><td class="num">${Object.keys(o.w).length}</td>
+        ${ORDER.map(m => o.w[m] ? `<td class="m"><span class="cell" style="${shade(o.w[m])}" title="${META[m][0]}: ${pct(o.w[m])}">${pct(o.w[m], o.w[m]<0.1?1:0)}</span></td>` : `<td class="m"></td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>
+    <p class="note">Alphabet's two share classes (GOOGL, GOOG) are combined. Darker cells are bigger positions.</p>`;
+}
+
+function view(v){
+  document.getElementById("v-port").setAttribute("aria-pressed", v==="port");
+  document.getElementById("v-over").setAttribute("aria-pressed", v==="over");
+  document.getElementById("portView").hidden = v !== "port";
+  document.getElementById("overView").hidden = v !== "over";
+}
+document.getElementById("v-port").addEventListener("click", () => view("port"));
+document.getElementById("v-over").addEventListener("click", () => view("over"));
+
+overlap();
+let start = "Druckenmiller";
+try { const s = localStorage.getItem("sp-mgr"); if (s && DATA[s]) start = s; } catch(e) {}
+if (location.hash === "#overlap") view("over");
+select(start);
+</script>
